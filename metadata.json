@@ -1,0 +1,6 @@
+{
+  "name": "ChatRoom",
+  "description": "Real-time, end-to-end encrypted chat room platform with Firestore persistence, Google Sign-In with Firebase Auth, live bidirectional messaging, and room discovery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

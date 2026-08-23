@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if true; // Allows registered/demo profiles
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Rooms collection
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true; // To allow joining / adding participants
+      allow delete: if request.auth != null;
+      
+      // Messages inside a room
+      match /messages/{messageId} {
+        allow read: if true;
+        allow create: if true;
+        allow update: if true;
+        allow delete: if true;
+      }
+    }
+    
+    // Direct chats collection
+    match /directChats/{chatId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+      
+      match /messages/{messageId} {
+        allow read: if true;
+        allow create: if true;
+        allow update: if true;
+        allow delete: if true;
+      }
+    }
+    
+    // Statuses
+    match /statuses/{statusId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+  }
+}

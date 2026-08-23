@@ -1,0 +1,122 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "type": "object",
+      "description": "User profile and cryptographic identity in ChatRoom",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "about": { "type": "string" },
+        "avatar": { "type": "string" },
+        "phone": { "type": "string" },
+        "publicKey": { "type": "string" },
+        "safetyNumber": { "type": "string" },
+        "online": { "type": "boolean" },
+        "lastSeen": { "type": "number" },
+        "joinedRooms": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "ChatRoom": {
+      "title": "ChatRoom",
+      "type": "object",
+      "description": "Real-time chat room with End-to-End Encryption, pinning, and participant management",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "topic": { "type": "string" },
+        "category": { "type": "string" },
+        "avatar": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "adminIds": { "type": "array", "items": { "type": "string" } },
+        "isPrivate": { "type": "boolean" },
+        "passcode": { "type": "string" },
+        "sharedKeyFingerprint": { "type": "string" },
+        "disappearingTimer": { "type": "number" },
+        "pinnedMessageIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name", "participants"]
+    },
+    "RoomMessage": {
+      "title": "RoomMessage",
+      "type": "object",
+      "description": "End-to-End Encrypted message with read receipts, reactions, and pinning support",
+      "properties": {
+        "id": { "type": "string" },
+        "roomId": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string" },
+        "encryptedPayload": {
+          "type": "object",
+          "properties": {
+            "ciphertext": { "type": "string" },
+            "iv": { "type": "string" },
+            "algorithm": { "type": "string" },
+            "fingerprint": { "type": "string" },
+            "encryptedAt": { "type": "number" }
+          },
+          "required": ["ciphertext", "iv", "algorithm"]
+        },
+        "mediaUrl": { "type": "string" },
+        "mediaFileName": { "type": "string" },
+        "mediaFileSize": { "type": "number" },
+        "voiceDuration": { "type": "number" },
+        "voiceWaveform": { "type": "array", "items": { "type": "number" } },
+        "timestamp": { "type": "number" },
+        "reactions": { "type": "array", "items": { "type": "object" } },
+        "readReceipts": { "type": "array", "items": { "type": "object" } },
+        "deliveredReceipts": { "type": "array", "items": { "type": "object" } },
+        "isPinned": { "type": "boolean" },
+        "pinnedAt": { "type": "number" },
+        "pinnedBy": { "type": "string" },
+        "pinnedByName": { "type": "string" },
+        "isStarred": { "type": "boolean" },
+        "isEdited": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" }
+      },
+      "required": ["id", "senderId", "senderName", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "UserProfile",
+      "description": "Registered user accounts and profiles"
+    },
+    "rooms": {
+      "schema": "ChatRoom",
+      "description": "Public and private chat rooms",
+      "subcollections": {
+        "messages": {
+          "schema": "RoomMessage",
+          "description": "Real-time encrypted messages with read receipts, reactions, and pinning"
+        }
+      }
+    },
+    "directChats": {
+      "schema": "ChatRoom",
+      "description": "Direct 1-on-1 conversations",
+      "subcollections": {
+        "messages": {
+          "schema": "RoomMessage",
+          "description": "Encrypted messages inside 1-on-1 direct chats"
+        }
+      }
+    },
+    "statuses": {
+      "description": "Ephemeral user status stories"
+    }
+  }
+}
