@@ -2,10 +2,8 @@ import { storage } from './storage';
 import { ensureFirebaseAuth } from './userDirectory';
 import { UserProfile } from '../types';
 
-// The UI historically used local profile IDs (usr_..., user_sarah, etc.).
-// Firestore security rules use Firebase Auth UID as the canonical identity.
-// Normalize the profile before it reaches localStorage so room/message writes
-// and the /users/{uid} document use the same identity.
+// Firestore rules use Firebase Auth UID as the canonical identity. Older
+// ChatRoom profiles used local ids, so normalize them before persistence.
 const originalSetCurrentUser = storage.setCurrentUser.bind(storage);
 
 storage.setCurrentUser = (async (profile: UserProfile) => {
@@ -17,8 +15,6 @@ storage.setCurrentUser = (async (profile: UserProfile) => {
       uid: firebaseUser.uid,
     };
 
-    // Mutate the caller's object too. Existing auth handlers call sync after
-    // setCurrentUser and then pass that same object to React state.
     Object.assign(profile, canonical);
     await originalSetCurrentUser(canonical);
   } catch (error) {
@@ -26,3 +22,12 @@ storage.setCurrentUser = (async (profile: UserProfile) => {
     await originalSetCurrentUser(profile);
   }
 }) as typeof storage.setCurrentUser;
+
+// Migrate an already-saved local profile when the app is upgraded. This runs
+// asynchronously so it never blocks the first React render.
+const existingProfile = storage.getCurrentUser();
+if (existingProfile) {
+  void storage.setCurrentUser(existingProfile).catch((error) => {
+    console.warn('Existing profile migration failed:', error);
+  });
+}
