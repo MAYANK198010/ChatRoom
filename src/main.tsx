@@ -2,12 +2,15 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { installCloudSyncBridge } from './services/cloudSync';
 import './index.css';
 
-installCloudSyncBridge();
+const rootElement = document.getElementById('root');
 
-createRoot(document.getElementById('root')!).render(
+if (!rootElement) {
+  throw new Error('ChatRoom root element was not found.');
+}
+
+createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
       <App />
