@@ -14,6 +14,7 @@ import { storage } from './storage';
 import { Chat, Message } from '../types';
 
 const activeSubscriptions = new Map<string, () => void>();
+let installed = false;
 
 function directChatId(participants: string[]): string {
   return `direct_${[...participants].sort().join('_')}`;
@@ -29,7 +30,8 @@ function isDirectChat(chat: Chat | undefined): chat is Chat {
 }
 
 export function installCloudSyncBridge(): () => void {
-  if (typeof window === 'undefined') return () => {};
+  if (typeof window === 'undefined' || installed) return () => {};
+  installed = true;
 
   const originalCreateChat = storage.createChat.bind(storage);
   const originalSendMessage = storage.sendMessage.bind(storage);
@@ -40,10 +42,8 @@ export function installCloudSyncBridge(): () => void {
     const result = originalCreateChat(chat);
     const uid = auth.currentUser?.uid;
     if (isDirectChat(chat) && uid && chat.participants.includes(uid)) {
-      void setDoc(doc(db, 'directChats', chat.id), {
-        ...chat,
-        updatedAt: Date.now(),
-      }, { merge: true }).catch((error) => console.warn('Direct chat sync failed:', error));
+      void setDoc(doc(db, 'directChats', chat.id), { ...chat, updatedAt: Date.now() }, { merge: true })
+        .catch((error) => console.warn('Direct chat sync failed:', error));
     }
     return result;
   }) as typeof storage.createChat;
@@ -96,7 +96,8 @@ export function installCloudSyncBridge(): () => void {
         if (change.type === 'removed') return;
         const chat = { ...(change.doc.data() as Chat), id: change.doc.id };
         originalCreateChat(chat);
-        if (activeSubscriptions.has(`messages:${chat.id}`)) return;
+        const key = `messages:${chat.id}`;
+        if (activeSubscriptions.has(key)) return;
 
         const messagesQuery = query(
           collection(db, 'directChats', chat.id, 'messages'),
@@ -111,7 +112,7 @@ export function installCloudSyncBridge(): () => void {
           }));
           storage.saveMessages(chat.id, messages);
         }, (error) => console.warn(`Direct message listener failed for ${chat.id}:`, error));
-        activeSubscriptions.set(`messages:${chat.id}`, unsubscribeMessages);
+        activeSubscriptions.set(key, unsubscribeMessages);
       });
     }, (error) => console.warn('Direct chat listener failed:', error));
 
@@ -121,5 +122,6 @@ export function installCloudSyncBridge(): () => void {
   return () => {
     unsubscribeAuth();
     stopAll();
+    installed = false;
   };
 }
