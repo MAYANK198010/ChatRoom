@@ -13,13 +13,7 @@ import { auth, db, signOutAuth } from './firebase';
 import { storage } from './storage';
 import { Chat, Message } from '../types';
 
-/**
- * Bridges the existing local-first UI with Firestore for direct chats.
- * The UI can keep its local cache while authenticated users get cross-device
- * chat persistence and realtime updates.
- */
-
-const activeMessageSubscriptions = new Map<string, () => void>();
+const activeSubscriptions = new Map<string, () => void>();
 
 function directChatId(participants: string[]): string {
   return `direct_${[...participants].sort().join('_')}`;
@@ -27,18 +21,15 @@ function directChatId(participants: string[]): string {
 
 function normalizeDirectChat(chat: Chat): Chat {
   if (chat.type !== 'direct' || chat.participants.length !== 2) return chat;
-  return {
-    ...chat,
-    id: directChatId(chat.participants),
-  };
+  return { ...chat, id: directChatId(chat.participants) };
 }
 
 function isDirectChat(chat: Chat | undefined): chat is Chat {
   return !!chat && chat.type === 'direct' && chat.participants.length === 2;
 }
 
-export function installCloudSyncBridge(): void {
-  if (typeof window === 'undefined') return;
+export function installCloudSyncBridge(): () => void {
+  if (typeof window === 'undefined') return () => {};
 
   const originalCreateChat = storage.createChat.bind(storage);
   const originalSendMessage = storage.sendMessage.bind(storage);
@@ -47,60 +38,50 @@ export function installCloudSyncBridge(): void {
   storage.createChat = ((input: Chat) => {
     const chat = normalizeDirectChat(input);
     const result = originalCreateChat(chat);
-
-    if (isDirectChat(chat) && auth.currentUser) {
+    const uid = auth.currentUser?.uid;
+    if (isDirectChat(chat) && uid && chat.participants.includes(uid)) {
       void setDoc(doc(db, 'directChats', chat.id), {
         ...chat,
-        participants: chat.participants,
         updatedAt: Date.now(),
-      }, { merge: true }).catch((error) => {
-        console.warn('Direct chat sync failed:', error);
-      });
+      }, { merge: true }).catch((error) => console.warn('Direct chat sync failed:', error));
     }
-
     return result;
   }) as typeof storage.createChat;
 
   storage.sendMessage = (async (chatId: string, messageData: Partial<Message>) => {
     const chat = storage.getChat(chatId);
     const result = await originalSendMessage(chatId, messageData);
-
-    if (!isDirectChat(chat) || !auth.currentUser) return result;
-
-    const cloudMessage = {
-      ...result,
-      content: '[E2EE Ciphertext]',
-      encryptedPayload: result.encryptedPayload || null,
-    };
+    const uid = auth.currentUser?.uid;
+    if (!isDirectChat(chat) || !uid || !chat.participants.includes(uid)) return result;
 
     try {
-      await setDoc(
-        doc(db, 'directChats', chat.id, 'messages', result.id),
-        cloudMessage,
-        { merge: true },
-      );
+      await setDoc(doc(db, 'directChats', chat.id, 'messages', result.id), {
+        ...result,
+        content: '[E2EE Ciphertext]',
+        encryptedPayload: result.encryptedPayload || null,
+      }, { merge: true });
       await updateDoc(doc(db, 'directChats', chat.id), {
-        lastMessage: cloudMessage,
+        lastMessage: { ...result, content: '[E2EE Ciphertext]' },
         updatedAt: Date.now(),
       });
     } catch (error) {
       console.warn('Direct message sync failed:', error);
     }
-
     return result;
   }) as typeof storage.sendMessage;
 
   storage.logout = (() => {
     originalLogout();
-    void signOutAuth().catch((error) => {
-      console.warn('Firebase sign-out failed:', error);
-    });
+    void signOutAuth().catch((error) => console.warn('Firebase sign-out failed:', error));
   }) as typeof storage.logout;
 
-  auth.onAuthStateChanged((user) => {
-    activeMessageSubscriptions.forEach((unsubscribe) => unsubscribe());
-    activeMessageSubscriptions.clear();
+  const stopAll = () => {
+    activeSubscriptions.forEach((unsubscribe) => unsubscribe());
+    activeSubscriptions.clear();
+  };
 
+  const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+    stopAll();
     if (!user) return;
 
     const chatsQuery = query(
@@ -110,36 +91,35 @@ export function installCloudSyncBridge(): void {
       limit(100),
     );
 
-    onSnapshot(chatsQuery, (snapshot) => {
+    const unsubscribeChats = onSnapshot(chatsQuery, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        const data = change.doc.data() as Chat;
-        const chat: Chat = { ...data, id: change.doc.id };
-        originalCreateChat(chat);
-
         if (change.type === 'removed') return;
-        if (activeMessageSubscriptions.has(chat.id)) return;
+        const chat = { ...(change.doc.data() as Chat), id: change.doc.id };
+        originalCreateChat(chat);
+        if (activeSubscriptions.has(`messages:${chat.id}`)) return;
 
         const messagesQuery = query(
           collection(db, 'directChats', chat.id, 'messages'),
           orderBy('timestamp', 'asc'),
           limit(150),
         );
-
-        const unsubscribe = onSnapshot(messagesQuery, (messageSnapshot) => {
+        const unsubscribeMessages = onSnapshot(messagesQuery, (messageSnapshot) => {
           const messages: Message[] = messageSnapshot.docs.map((messageDoc) => ({
             ...(messageDoc.data() as Message),
             id: messageDoc.id,
             chatId: chat.id,
           }));
           storage.saveMessages(chat.id, messages);
-        }, (error) => {
-          console.warn(`Direct message listener failed for ${chat.id}:`, error);
-        });
-
-        activeMessageSubscriptions.set(chat.id, unsubscribe);
+        }, (error) => console.warn(`Direct message listener failed for ${chat.id}:`, error));
+        activeSubscriptions.set(`messages:${chat.id}`, unsubscribeMessages);
       });
-    }, (error) => {
-      console.warn('Direct chat listener failed:', error);
-    });
+    }, (error) => console.warn('Direct chat listener failed:', error));
+
+    activeSubscriptions.set('__chats__', unsubscribeChats);
   });
+
+  return () => {
+    unsubscribeAuth();
+    stopAll();
+  };
 }
